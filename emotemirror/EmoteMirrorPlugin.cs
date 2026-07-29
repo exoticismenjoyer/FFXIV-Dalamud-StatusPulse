@@ -22,6 +22,7 @@ public sealed class EmoteMirrorPlugin : IDalamudPlugin
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] internal static IGameInteropProvider GameInteropProvider { get; private set; } = null!;
+    [PluginService] internal static ITargetManager TargetManager { get; private set; } = null!;
 
     private const string CommandName = "/emotemirror";
 
@@ -53,9 +54,27 @@ public sealed class EmoteMirrorPlugin : IDalamudPlugin
     {
         if (!Configuration.EmoteMirrorEnabled) return;
 
+        var isFriend = instigator.StatusFlags.HasFlag(StatusFlags.Friend);
+        var instigatorWorldId = instigator.HomeWorld.RowId;
+
         // Friends only filter
-        if (Configuration.EmoteFriendsOnly && !instigator.StatusFlags.HasFlag(StatusFlags.Friend))
-            return;
+        if (Configuration.EmoteFriendsOnly && !isFriend)
+        {
+            // BYPASS: If Allow List is also ON and they are on it, they bypass this block.
+            // Otherwise, they are blocked here.
+            if (!Configuration.UseAllowList || !Configuration.IsAllowed(instigator.Name.TextValue, instigatorWorldId))
+                return;
+        }
+
+        if (!isFriend || !Configuration.EmoteFriendsOnly)
+        {
+            if (!Configuration.IsAllowed(instigator.Name.TextValue, instigatorWorldId))
+            {
+                if (Configuration.EnableDebugLogging)
+                    Log.Info($"[EmoteMirror] Ignored emote from {instigator.Name} - not on allow list.");
+                return;
+            }
+        }
 
         // Look up the slash command for this emote from the Emote sheet
         var emoteSheet = DataManager.GetExcelSheet<Emote>();
@@ -68,7 +87,7 @@ public sealed class EmoteMirrorPlugin : IDalamudPlugin
         var fullCommand = Configuration.EmoteMotionOnly ? $"{command} motion" : command;
         ExecuteCommand(fullCommand);
 
-       if (Configuration.EnableDebugLogging)
+        if (Configuration.EnableDebugLogging)
             Log.Info($"[EmoteMirror] {instigator.Name} used {command} → mirroring '{fullCommand}'");
     }
 
